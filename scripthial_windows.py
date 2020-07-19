@@ -10,16 +10,17 @@ u32 = windll.user32
 
 
 g_glow = True
+g_glow_key = 110
 g_rcs = True
 g_aimbot = True
 g_aimbot_rcs = True
 g_aimbot_head = False
-g_aimbot_fov = 1.0 / 180.0
-g_aimbot_smooth = 5.0
+g_aimbot_fov = 5.0 / 180.0
+g_aimbot_smooth = 4.0
 g_aimbot_key = 107
 g_triggerbot_key = 111
 g_exit_key = 72
-
+g_aimbotLockedWeapons = [42, 44, 45, 43]
 g_old_punch = 0
 g_previous_tick = 0
 g_current_tick = 0
@@ -608,7 +609,9 @@ if __name__ == "__main__":
     print('    m_dwBoneMatrix:     ' + hex(nv.m_dwBoneMatrix))
     print('[*]Info')
     print('    Creator:            github.com/ekknod')
+    print('    Editor:            github.com/chuddyni')
     print('    Websites:           https://ekknod.xyz')
+    print('    Website Editor:           https://DinarCoffee.pl')
     while mem.is_running() and not InputSystem.is_button_down(g_exit_key):
         k32.Sleep(1)
         if Engine.is_in_game():
@@ -616,7 +619,7 @@ if __name__ == "__main__":
                 self = Entity.get_client_entity(Engine.get_local_player())
                 fl_sensitivity = _sensitivity.get_float()
                 view_angle = Engine.get_view_angles()
-                if g_glow:
+                if InputSystem.is_button_down(g_glow_key):
                     glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
                     for i in range(0, Engine.get_max_clients()):
                         entity = Entity.get_client_entity(i)
@@ -641,7 +644,17 @@ if __name__ == "__main__":
                         u32.mouse_event(0x0002, 0, 0, 0, 0)
                         k32.Sleep(50)
                         u32.mouse_event(0x0004, 0, 0, 0, 0)
-                if g_aimbot and InputSystem.is_button_down(g_aimbot_key):
+                if g_aimbot and InputSystem.is_button_down(g_aimbot_key) and (Player.get_weapon_id(self) not in g_aimbotLockedWeapons):
+
+                    #debug
+                    # print("In loop")
+                    # print("Weapon ID:")
+                    # print(Player.get_weapon_id(self))
+                    # print("Is allowed weapon: ")
+                    # print(Player.get_weapon_id(self) not in aimbotLockedWeapons)
+                    # print("\n")
+                    #check weapon id in aimbot loop
+
                     g_current_tick = self.get_tick_count()
                     if not _target.is_valid() and not get_best_target(view_angle, self):
                         continue
@@ -664,4 +677,3 @@ if __name__ == "__main__":
         else:
             g_previous_tick = 0
             target_set(Player(0))
-

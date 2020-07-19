@@ -1,4 +1,4 @@
-# scripthial
+# scripthial with some futures
 windows/linux python aimassist
 
 # repo name
@@ -13,8 +13,10 @@ https://github.com/colinmorris/char-rbm/blob/master/samples/repos_unique.txt#L96
 * external netvars
 * external convars
 * external glow
+* > added glow on push the mouse button
 * external rcs
 * external aimbot
+* > blocked some weapons when aimbot is on (default left mouse button)
 * external triggerbot
 
 # usage
