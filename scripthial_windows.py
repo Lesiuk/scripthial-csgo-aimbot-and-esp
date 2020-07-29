@@ -654,12 +654,12 @@ if __name__ == "__main__":
 
                     # debug
 
-                    print("In loop")
-                    print("Weapon ID:")
-                    print(Player.get_weapon_id(self))
-                    print("Is allowed weapon: ")
-                    print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
-                    print("\n")
+                    # print("In loop")
+                    # print("Weapon ID:")
+                    # print(Player.get_weapon_id(self))
+                    # print("Is allowed weapon: ")
+                    # print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
+                    # print("\n")
 
                     # check weapon id in aimbot loop
 
