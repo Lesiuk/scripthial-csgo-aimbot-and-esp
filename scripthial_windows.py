@@ -21,7 +21,7 @@ g_aimbot_smooth = 4.0
 g_aimbot_key = 107
 g_triggerbot_key = 111
 g_exit_key = 72
-g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48]
+g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48, 46]
 g_old_punch = 0
 g_previous_tick = 0
 g_current_tick = 0
@@ -654,12 +654,12 @@ if __name__ == "__main__":
 
                     # debug
 
-                    # print("In loop")
-                    # print("Weapon ID:")
-                    # print(Player.get_weapon_id(self))
-                    # print("Is allowed weapon: ")
-                    # print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
-                    # print("\n")
+                    print("In loop")
+                    print("Weapon ID:")
+                    print(Player.get_weapon_id(self))
+                    print("Is allowed weapon: ")
+                    print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
+                    print("\n")
 
                     # check weapon id in aimbot loop
 
