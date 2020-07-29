@@ -1,5 +1,5 @@
 # scripthial with some futures
-windows/linux python aimassist
+windows/linux python aimassist for csgo with autoupdate offsets
 
 # repo name
 https://github.com/colinmorris/char-rbm/blob/master/samples/repos_unique.txt#L9698
