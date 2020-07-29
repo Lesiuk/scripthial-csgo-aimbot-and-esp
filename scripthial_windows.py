@@ -7,7 +7,8 @@ u32 = windll.user32
 #
 # ekknod@2019
 #
-
+#dodaj kilka strzalow do triggera ale wylacz awp
+#dodaj automatyczne wh jak padniesz
 
 g_glow = True
 g_glow_key = 110
@@ -20,7 +21,7 @@ g_aimbot_smooth = 4.0
 g_aimbot_key = 107
 g_triggerbot_key = 111
 g_exit_key = 72
-g_aimbotLockedWeapons = [42, 44, 45, 43]
+g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48]
 g_old_punch = 0
 g_previous_tick = 0
 g_current_tick = 0
@@ -295,6 +296,7 @@ class NetVarList:
         table = NetVarTable('DT_BaseEntity')
         self.m_iTeamNum = table.get_offset('m_iTeamNum')
         self.m_vecOrigin = table.get_offset('m_vecOrigin')
+        self.m_clrRender = table.get_offset('m_clrRender')
 
         table = NetVarTable('DT_CSPlayer')
         self.m_hActiveWeapon = table.get_offset('m_hActiveWeapon')
@@ -596,6 +598,7 @@ if __name__ == "__main__":
     print('    GetMaxClients:      ' + hex(nv.dwMaxClients))
     print('    IsInGame:           ' + hex(nv.dwState))
     print('[*]NetVars')
+    # m_clrRender
     print('    m_iHealth:          ' + hex(nv.m_iHealth))
     print('    m_vecViewOffset:    ' + hex(nv.m_vecViewOffset))
     print('    m_lifeState:        ' + hex(nv.m_lifeState))
@@ -607,6 +610,8 @@ if __name__ == "__main__":
     print('    m_iShotsFired:      ' + hex(nv.m_iShotsFired))
     print('    m_iCrossHairID:     ' + hex(nv.m_iCrossHairID))
     print('    m_dwBoneMatrix:     ' + hex(nv.m_dwBoneMatrix))
+    print('    m_clrRender:     ' + hex(nv.m_clrRender))
+
     print('[*]Info')
     print('    Creator:            github.com/ekknod')
     print('    Editor:            github.com/chuddyni')
@@ -635,6 +640,7 @@ if __name__ == "__main__":
                         mem.write_float(glow_pointer + index + 0x10, 0.8)                  # a
                         mem.write_i8(glow_pointer + index + 0x24, 1)
                         mem.write_i8(glow_pointer + index + 0x25, 0)
+
                 if InputSystem.is_button_down(g_triggerbot_key):
                     cross_id = self.get_cross_index()
                     if cross_id == 0:
@@ -646,14 +652,16 @@ if __name__ == "__main__":
                         u32.mouse_event(0x0004, 0, 0, 0, 0)
                 if g_aimbot and InputSystem.is_button_down(g_aimbot_key) and (Player.get_weapon_id(self) not in g_aimbotLockedWeapons):
 
-                    #debug
+                    # debug
+
                     # print("In loop")
                     # print("Weapon ID:")
                     # print(Player.get_weapon_id(self))
                     # print("Is allowed weapon: ")
-                    # print(Player.get_weapon_id(self) not in aimbotLockedWeapons)
+                    # print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
                     # print("\n")
-                    #check weapon id in aimbot loop
+
+                    # check weapon id in aimbot loop
 
                     g_current_tick = self.get_tick_count()
                     if not _target.is_valid() and not get_best_target(view_angle, self):
