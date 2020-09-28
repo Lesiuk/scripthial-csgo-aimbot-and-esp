@@ -1,27 +1,32 @@
 import platform
 import math
+import time
 from ctypes import *
+
 ntdll = windll.ntdll
 k32 = windll.kernel32
 u32 = windll.user32
 #
 # ekknod@2019
 #
-#dodaj kilka strzalow do triggera ale wylacz awp
-#dodaj automatyczne wh jak padniesz
+# dodaj kilka strzalow do triggera ale wylacz awp
+# dodaj automatyczne wh jak padniesz
 
 g_glow = True
-g_glow_key = 110
 g_rcs = True
 g_aimbot = True
 g_aimbot_rcs = True
 g_aimbot_head = False
-g_aimbot_fov = 5.0 / 180.0
+g_aimbot_fov = 12.0 / 180.0
+g_autopistol = False
 g_aimbot_smooth = 4.0
 g_aimbot_key = 107
-g_triggerbot_key = 111
+g_triggerbot_key = 110
+g_glow_key = 111
 g_exit_key = 72
 g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48, 46]
+g_pistols = [61, 36, 4, 64, 63, 1, 262146, 262147, 32, 36, 30, 262205]
+g_next_shoot_time = time.time() + 0.1
 g_old_punch = 0
 g_previous_tick = 0
 g_current_tick = 0
@@ -70,7 +75,7 @@ class Process:
             if ntdll.NtQueryInformationProcess(handle, 0, pointer(buffer), 48, 0) == 0:
                 return buffer[1]
         return 0
-    
+
     def __init__(self, name):
         self.mem = self.get_process_handle(name)
         if self.mem == 0:
@@ -292,6 +297,7 @@ class NetVarList:
         self.m_lifeState = table.get_offset('m_lifeState')
         self.m_nTickBase = table.get_offset('m_nTickBase')
         self.m_vecPunch = table.get_offset('m_Local') + 0x70
+        self.m_bSpottedByMask = table.get_offset('m_bSpottedByMask')
 
         table = NetVarTable('DT_BaseEntity')
         self.m_iTeamNum = table.get_offset('m_iTeamNum')
@@ -315,20 +321,48 @@ class NetVarList:
         self.dwGetLocalPlayer = mem.read_i32(vt.engine.function(12) + 0x16)
         self.dwViewAngles = mem.read_i32(vt.engine.function(19) + 0xB2)
         self.dwMaxClients = mem.read_i32(vt.engine.function(20) + 0x07)
+
         self.dwState = mem.read_i32(vt.engine.function(26) + 0x07)
         self.dwButton = mem.read_i32(vt.input.function(15) + 0x21D)
         if g_glow:
             self.dwGlowObjectManager = mem.find_pattern("client.dll",
-                    b'\xA1\x00\x00\x00\x00\xA8\x01\x75\x4B', "x????xxxx")
+                                                        b'\xA1\x00\x00\x00\x00\xA8\x01\x75\x4B', "x????xxxx")
             self.dwGlowObjectManager = mem.read_i32(self.dwGlowObjectManager + 1) + 4
 
 
 class Player:
-    def __init__(self, address):
+    def __init__(self, address, index):
         self.address = address
+        self.index = index
+
+    def get_id(self):
+        return self.index
 
     def get_team_num(self):
         return mem.read_i32(self.address + nv.m_iTeamNum)
+
+    def is_visible_by(self, player_who_looks):
+        our_spotted_by = self.get_spotted_by_mask()
+        player_who_looks_id = player_who_looks.get_id()
+        return (our_spotted_by & (1 << player_who_looks_id)) > 0
+
+    def is_visible_by_enemies(self):
+        our_team_num = self.get_team_num()
+        for i in range(0, Engine.get_max_clients()):
+            entity = Entity.get_client_entity(i)
+
+            if our_team_num != entity.get_team_num() and self.is_visible_by(entity):
+                return True
+
+        return False
+
+    def is_visible(self):
+        local_player = Engine.get_local_player()
+        local_player_entity = Entity.get_client_entity(local_player)
+        return self.is_visible_by(local_player_entity)
+
+    def get_spotted_by_mask(self):
+        return mem.read_i32(self.address + nv.m_bSpottedByMask)
 
     def get_health(self):
         return mem.read_i32(self.address + nv.m_iHealth)
@@ -375,9 +409,12 @@ class Player:
             mem.read_float(a1 + a0 + 0x2C)
         )
 
-    def is_valid(self):
+    def is_alive(self):
         health = self.get_health()
-        return self.address != 0 and self.get_life_state() == 0 and 0 < health < 1338
+        return self.get_life_state() == 0 and 0 < health < 1338
+
+    def is_valid(self):
+        return self.address != 0 and self.is_alive()
 
 
 class Engine:
@@ -401,7 +438,7 @@ class Engine:
 class Entity:
     @staticmethod
     def get_client_entity(index):
-        return Player(mem.read_i32(nv.dwEntityList + index * 0x10))
+        return Player(mem.read_i32(nv.dwEntityList + index * 0x10), index)
 
 
 class InputSystem:
@@ -495,7 +532,7 @@ def get_target_angle(local_p, target, bone_id):
     return Math.vec_clamp(c)
 
 
-_target = Player(0)
+_target = Player(0, 0)
 _target_bone = 0
 _bones = [5, 4, 3, 0, 7, 8]
 
@@ -510,8 +547,9 @@ def get_best_target(va, local_p):
     a0 = 9999.9
     for i in range(1, Engine.get_max_clients()):
         entity = Entity.get_client_entity(i)
-        if not entity.is_valid():
+        if not entity.is_valid() or not entity.is_visible():
             continue
+
         if not mp_teammates_are_enemies.get_int() and local_p.get_team_num() == entity.get_team_num():
             continue
         if g_aimbot_head:
@@ -544,10 +582,10 @@ def aim_at_target(sensitivity, va, angle):
     elif x < -180.0:
         x += 360.0
     if math.fabs(x) / 180.0 >= g_aimbot_fov:
-        target_set(Player(0))
+        target_set(Player(0, 0))
         return
     if math.fabs(y) / 89.0 >= g_aimbot_fov:
-        target_set(Player(0))
+        target_set(Player(0, 0))
         return
     x = (x / sensitivity) / 0.022
     y = (y / sensitivity) / -0.022
@@ -611,6 +649,7 @@ if __name__ == "__main__":
     print('    m_iCrossHairID:     ' + hex(nv.m_iCrossHairID))
     print('    m_dwBoneMatrix:     ' + hex(nv.m_dwBoneMatrix))
     print('    m_clrRender:     ' + hex(nv.m_clrRender))
+    print('    m_bSpottedByMask:   ' + hex(nv.m_bSpottedByMask))
 
     print('[*]Info')
     print('    Creator:            github.com/ekknod')
@@ -624,22 +663,28 @@ if __name__ == "__main__":
                 self = Entity.get_client_entity(Engine.get_local_player())
                 fl_sensitivity = _sensitivity.get_float()
                 view_angle = Engine.get_view_angles()
-                if InputSystem.is_button_down(g_glow_key):
-                    glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
-                    for i in range(0, Engine.get_max_clients()):
-                        entity = Entity.get_client_entity(i)
-                        if not entity.is_valid():
-                            continue
-                        if not mp_teammates_are_enemies.get_int() and self.get_team_num() == entity.get_team_num():
-                            continue
-                        entity_health = entity.get_health() / 100.0
-                        index = mem.read_i32(entity.address + nv.m_iGlowIndex) * 0x38
-                        mem.write_float(glow_pointer + index + 0x04, 1.0 - entity_health)  # r
-                        mem.write_float(glow_pointer + index + 0x08, entity_health)        # g
-                        mem.write_float(glow_pointer + index + 0x0C, 0.0)                  # b
-                        mem.write_float(glow_pointer + index + 0x10, 0.8)                  # a
-                        mem.write_i8(glow_pointer + index + 0x24, 1)
-                        mem.write_i8(glow_pointer + index + 0x25, 0)
+
+                # here is glow management
+                glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
+                for i in range(0, Engine.get_max_clients()):
+                    entity = Entity.get_client_entity(i)
+
+                    should_display = entity.is_visible_by_enemies() or not self.is_alive()
+                    if InputSystem.is_button_down(g_glow_key):
+                        should_display = True
+
+                    if not entity.is_valid() or not should_display:
+                        continue
+                    if not mp_teammates_are_enemies.get_int() and self.get_team_num() == entity.get_team_num():
+                        continue
+                    entity_health = entity.get_health() / 100.0
+                    index = mem.read_i32(entity.address + nv.m_iGlowIndex) * 0x38
+                    mem.write_float(glow_pointer + index + 0x04, 1.0 - entity_health)  # r
+                    mem.write_float(glow_pointer + index + 0x08, entity_health)  # g
+                    mem.write_float(glow_pointer + index + 0x0C, 0.0)  # b
+                    mem.write_float(glow_pointer + index + 0x10, 0.8)  # a
+                    mem.write_i8(glow_pointer + index + 0x24, 1)
+                    mem.write_i8(glow_pointer + index + 0x25, 0)
 
                 if InputSystem.is_button_down(g_triggerbot_key):
                     cross_id = self.get_cross_index()
@@ -650,25 +695,29 @@ if __name__ == "__main__":
                         u32.mouse_event(0x0002, 0, 0, 0, 0)
                         k32.Sleep(50)
                         u32.mouse_event(0x0004, 0, 0, 0, 0)
-                if g_aimbot and InputSystem.is_button_down(g_aimbot_key) and (Player.get_weapon_id(self) not in g_aimbotLockedWeapons):
 
-                    # debug
+                # print("" + str(self.get_weapon_id()))
 
-                    # print("In loop")
-                    # print("Weapon ID:")
-                    # print(Player.get_weapon_id(self))
-                    # print("Is allowed weapon: ")
-                    # print(Player.get_weapon_id(self) not in g_aimbotLockedWeapons)
-                    # print("\n")
+                if g_autopistol \
+                        and InputSystem.is_button_down(g_aimbot_key) \
+                        and self.get_weapon_id() in g_pistols \
+                        and time.time() > g_next_shoot_time:
+                    u32.mouse_event(0x0004, 0, 0, 0, 0)
+                    k32.Sleep(25)
+                    u32.mouse_event(0x0002, 0, 0, 0, 0)
 
-                    # check weapon id in aimbot loop
+                    g_next_shoot_time = time.time() + 0.025
+
+                if g_aimbot and InputSystem.is_button_down(g_aimbot_key) and (
+                        self.get_weapon_id() not in g_aimbotLockedWeapons):
 
                     g_current_tick = self.get_tick_count()
                     if not _target.is_valid() and not get_best_target(view_angle, self):
                         continue
                     aim_at_target(fl_sensitivity, view_angle, get_target_angle(self, _target, _target_bone))
                 else:
-                    target_set(Player(0))
+                    target_set(Player(0, 0))
+
                 if g_rcs:
                     current_punch = self.get_vec_punch()
                     if self.get_shots_fired() > 1:
@@ -684,4 +733,4 @@ if __name__ == "__main__":
                 continue
         else:
             g_previous_tick = 0
-            target_set(Player(0))
+            target_set(Player(0, 0))
