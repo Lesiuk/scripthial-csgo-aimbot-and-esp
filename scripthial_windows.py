@@ -25,9 +25,12 @@ g_aimbot_key = 107
 g_triggerbot_key = 110
 g_glow_key = 111
 g_exit_key = 72
+
 g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48, 46]
 g_pistols = [61, 36, 4, 64, 63, 1, 262146, 262147, 32, 36, 30, 262205]
+
 g_next_shoot_time = time.time() + 0.1
+g_next_glow_time = 0
 g_old_punch = 0
 g_previous_tick = 0
 g_current_tick = 0
@@ -326,6 +329,8 @@ class NetVarList:
         self.dwGetLocalPlayer = mem.read_i32(vt.engine.function(12) + 0x16)
         self.dwViewAngles = mem.read_i32(vt.engine.function(19) + 0xB2)
         self.dwMaxClients = mem.read_i32(vt.engine.function(20) + 0x07)
+        self.dwGlobalVars = mem.find_pattern("engine.dll", b'\x68\x00\x00\x00\x00\x68\x00\x00\x00\x00\xFF\x50\x08\x85\xC0', "x????x????xxxxx")
+        self.dwGlobalVars = mem.read_i32(self.dwGlobalVars + 1)
 
         self.dwState = mem.read_i32(vt.engine.function(26) + 0x07)
         self.dwButton = mem.read_i32(vt.input.function(15) + 0x21D)
@@ -441,6 +446,26 @@ class Engine:
     def is_in_game():
         return mem.read_i8(nv.dwClientState + nv.dwState) >> 2
 
+    # class CGlobalVarsBase
+    # {
+    # public:
+    # 	float	realtime;
+    # 	int	framecount;
+    # 	float	absolute_frametime;
+    # 	float	absolute_framestarttimestddev;
+    # 	float	curtime; # 4!
+    # 	float	frameTime;
+    # 	int	maxClients;
+    # 	int	tickcount;
+    # 	float	interval_per_tick;
+    # 	float	interpolation_amount;
+    # 	int	simThicksThisFrame;
+    # 	int	network_protocol;
+    # };
+
+    @staticmethod
+    def get_cur_time():
+        return mem.read_float(nv.dwGlobalVars + (4 * 0x04))
 
 class Entity:
     @staticmethod
@@ -657,13 +682,11 @@ if __name__ == "__main__":
     print('    m_clrRender:     ' + hex(nv.m_clrRender))
     print('    m_bSpottedByMask:   ' + hex(nv.m_bSpottedByMask))
 
-    if g_glow and g_fastglow:
-        sleep_time = 25
-    else:
-        sleep_time = 1
-
     while mem.is_running() and not InputSystem.is_button_down(g_exit_key):
-        k32.Sleep(sleep_time)
+        k32.Sleep(1)
+        current_time = time.time()
+        engine_cur_time = Engine.get_cur_time()
+
         if Engine.is_in_game():
             try:
                 self = Entity.get_client_entity(Engine.get_local_player())
@@ -671,7 +694,9 @@ if __name__ == "__main__":
                 view_angle = Engine.get_view_angles()
 
                 # here is glow management
-                if g_glow:
+                if g_glow and current_time > g_next_glow_time:
+                    g_next_glow_time = current_time + 0.1
+
                     glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
                     for i in range(0, Engine.get_max_clients()):
                         entity = Entity.get_client_entity(i)
@@ -686,10 +711,20 @@ if __name__ == "__main__":
                                 entity.set_detected_by_sensor_enemy_time(0)
                             continue
 
+                        # 2 is minimum, 15 is maximum
+
+                        entity_health = entity.get_health()
+
                         if g_fastglow:
-                            entity.set_detected_by_sensor_enemy_time(999999.0)
+                            value = 15.0
+                            if entity_health < 30:
+                                value = 1
+                            elif entity_health < 65:
+                                value = 5
+
+                            entity.set_detected_by_sensor_enemy_time(engine_cur_time + value)
                         else:
-                            entity_health = entity.get_health() / 100.0
+                            entity_health = entity_health / 100.0
                             index = mem.read_i32(entity.address + nv.m_iGlowIndex) * 0x38
                             mem.write_float(glow_pointer + index + 0x04, 1.0 - entity_health)  # r
                             mem.write_float(glow_pointer + index + 0x08, entity_health)  # g
@@ -711,9 +746,9 @@ if __name__ == "__main__":
                 # print("" + str(self.get_weapon_id()))
 
                 if g_autopistol \
+                        and current_time > g_next_shoot_time \
                         and InputSystem.is_button_down(g_aimbot_key) \
-                        and self.get_weapon_id() in g_pistols \
-                        and time.time() > g_next_shoot_time:
+                        and self.get_weapon_id() in g_pistols:
                     u32.mouse_event(0x0004, 0, 0, 0, 0)
                     k32.Sleep(25)
                     u32.mouse_event(0x0002, 0, 0, 0, 0)
