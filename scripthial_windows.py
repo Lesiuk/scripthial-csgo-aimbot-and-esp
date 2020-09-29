@@ -13,6 +13,7 @@ u32 = windll.user32
 # dodaj automatyczne wh jak padniesz
 
 g_glow = True
+g_fastglow = True
 g_rcs = True
 g_aimbot = True
 g_aimbot_rcs = True
@@ -96,6 +97,9 @@ class Process:
         buffer = Vector3()
         ntdll.NtReadVirtualMemory(self.mem, c_long(address), pointer(buffer), 12, 0)
         return buffer
+
+    def write_vec3(self, address, vec):
+        return ntdll.NtWriteVirtualMemory(self.mem, c_long(address), pointer(vec), 12, 0) == 0
 
     def read_buffer(self, address, length):
         buffer = (c_uint8 * length)()
@@ -309,6 +313,7 @@ class NetVarList:
         self.m_iShotsFired = table.get_offset('m_iShotsFired')
         self.m_iCrossHairID = table.get_offset('m_bHasDefuser') + 0x5C
         self.m_iGlowIndex = table.get_offset('m_flFlashDuration') + 0x18
+        self.m_flDetectedByEnemySensorTime = table.get_offset('m_flDetectedByEnemySensorTime')
 
         table = NetVarTable('DT_BaseAnimating')
         self.m_dwBoneMatrix = table.get_offset('m_nForceBone') + 0x1C
@@ -329,7 +334,6 @@ class NetVarList:
                                                         b'\xA1\x00\x00\x00\x00\xA8\x01\x75\x4B', "x????xxxx")
             self.dwGlowObjectManager = mem.read_i32(self.dwGlowObjectManager + 1) + 4
 
-
 class Player:
     def __init__(self, address, index):
         self.address = address
@@ -345,6 +349,9 @@ class Player:
         our_spotted_by = self.get_spotted_by_mask()
         player_who_looks_id = player_who_looks.get_id()
         return (our_spotted_by & (1 << player_who_looks_id)) > 0
+
+    def set_detected_by_sensor_enemy_time(self, value):
+        return mem.write_float(self.address + nv.m_flDetectedByEnemySensorTime, value)
 
     def is_visible_by_enemies(self):
         our_team_num = self.get_team_num()
@@ -607,7 +614,6 @@ def aim_at_target(sensitivity, va, angle):
         g_previous_tick = g_current_tick
         u32.mouse_event(0x0001, int(sx), int(sy), 0, 0)
 
-
 if __name__ == "__main__":
     if platform.architecture()[0] != '64bit':
         print('[!]64bit python required')
@@ -651,13 +657,13 @@ if __name__ == "__main__":
     print('    m_clrRender:     ' + hex(nv.m_clrRender))
     print('    m_bSpottedByMask:   ' + hex(nv.m_bSpottedByMask))
 
-    print('[*]Info')
-    print('    Creator:            github.com/ekknod')
-    print('    Editor:            github.com/chuddyni')
-    print('    Websites:           https://ekknod.xyz')
-    print('    Website Editor:           https://DinarCoffee.pl')
+    if g_glow and g_fastglow:
+        sleep_time = 25
+    else:
+        sleep_time = 1
+
     while mem.is_running() and not InputSystem.is_button_down(g_exit_key):
-        k32.Sleep(1)
+        k32.Sleep(sleep_time)
         if Engine.is_in_game():
             try:
                 self = Entity.get_client_entity(Engine.get_local_player())
@@ -665,26 +671,32 @@ if __name__ == "__main__":
                 view_angle = Engine.get_view_angles()
 
                 # here is glow management
-                glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
-                for i in range(0, Engine.get_max_clients()):
-                    entity = Entity.get_client_entity(i)
+                if g_glow:
+                    glow_pointer = mem.read_i32(nv.dwGlowObjectManager)
+                    for i in range(0, Engine.get_max_clients()):
+                        entity = Entity.get_client_entity(i)
 
-                    should_display = entity.is_visible_by_enemies() or not self.is_alive()
-                    if InputSystem.is_button_down(g_glow_key):
-                        should_display = True
+                        should_display = entity.is_visible_by_enemies() or not self.is_alive()
+                        if InputSystem.is_button_down(g_glow_key):
+                            should_display = True
 
-                    if not entity.is_valid() or not should_display:
-                        continue
-                    if not mp_teammates_are_enemies.get_int() and self.get_team_num() == entity.get_team_num():
-                        continue
-                    entity_health = entity.get_health() / 100.0
-                    index = mem.read_i32(entity.address + nv.m_iGlowIndex) * 0x38
-                    mem.write_float(glow_pointer + index + 0x04, 1.0 - entity_health)  # r
-                    mem.write_float(glow_pointer + index + 0x08, entity_health)  # g
-                    mem.write_float(glow_pointer + index + 0x0C, 0.0)  # b
-                    mem.write_float(glow_pointer + index + 0x10, 0.8)  # a
-                    mem.write_i8(glow_pointer + index + 0x24, 1)
-                    mem.write_i8(glow_pointer + index + 0x25, 0)
+                        if not entity.is_valid() or not should_display or \
+                                (not mp_teammates_are_enemies.get_int() and self.get_team_num() == entity.get_team_num()):
+                            if g_fastglow:
+                                entity.set_detected_by_sensor_enemy_time(0)
+                            continue
+
+                        if g_fastglow:
+                            entity.set_detected_by_sensor_enemy_time(999999.0)
+                        else:
+                            entity_health = entity.get_health() / 100.0
+                            index = mem.read_i32(entity.address + nv.m_iGlowIndex) * 0x38
+                            mem.write_float(glow_pointer + index + 0x04, 1.0 - entity_health)  # r
+                            mem.write_float(glow_pointer + index + 0x08, entity_health)  # g
+                            mem.write_float(glow_pointer + index + 0x0C, 0.0)  # b
+                            mem.write_float(glow_pointer + index + 0x10, 0.8)  # a
+                            mem.write_i8(glow_pointer + index + 0x24, 1)
+                            mem.write_i8(glow_pointer + index + 0x25, 0)
 
                 if InputSystem.is_button_down(g_triggerbot_key):
                     cross_id = self.get_cross_index()
@@ -724,6 +736,7 @@ if __name__ == "__main__":
                         new_punch = Vector3(current_punch.x - g_old_punch.x,
                                             current_punch.y - g_old_punch.y, 0)
                         new_angle = Vector3(view_angle.x - new_punch.x * 2.0, view_angle.y - new_punch.y * 2.0, 0)
+
                         u32.mouse_event(0x0001,
                                         int(((new_angle.y - view_angle.y) / fl_sensitivity) / -0.022),
                                         int(((new_angle.x - view_angle.x) / fl_sensitivity) / 0.022),
