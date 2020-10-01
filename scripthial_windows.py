@@ -18,13 +18,16 @@ g_rcs = True
 g_aimbot = True
 g_aimbot_rcs = True
 g_aimbot_head = False
-g_aimbot_fov = 12.0 / 180.0
+g_aimbot_fov = 8.0 / 180.0
 g_autopistol = False
 g_aimbot_smooth = 4.0
 g_aimbot_key = 107
 g_triggerbot_key = 110
 g_glow_key = 111
 g_exit_key = 72
+
+# we should detect it by for example reading map name
+g_dangerzone = False
 
 g_aimbotLockedWeapons = [42, 44, 45, 43, 49, 48, 46]
 g_pistols = [61, 36, 4, 64, 63, 1, 262146, 262147, 32, 36, 30, 262205]
@@ -38,6 +41,12 @@ g_current_tick = 0
 
 class Vector3(Structure):
     _fields_ = [('x', c_float), ('y', c_float), ('z', c_float)]
+
+    def is_zero(self):
+        return self.x == 0.0 and self.y == 0 and self.z == 0
+
+    def deviation(self):
+        return abs(self.x) + abs(self.y) + abs(self.z)
 
 
 class PROCESSENTRY32(Structure):
@@ -329,7 +338,9 @@ class NetVarList:
         self.dwGetLocalPlayer = mem.read_i32(vt.engine.function(12) + 0x16)
         self.dwViewAngles = mem.read_i32(vt.engine.function(19) + 0xB2)
         self.dwMaxClients = mem.read_i32(vt.engine.function(20) + 0x07)
-        self.dwGlobalVars = mem.find_pattern("engine.dll", b'\x68\x00\x00\x00\x00\x68\x00\x00\x00\x00\xFF\x50\x08\x85\xC0', "x????x????xxxxx")
+        self.dwGlobalVars = mem.find_pattern("engine.dll",
+                                             b'\x68\x00\x00\x00\x00\x68\x00\x00\x00\x00\xFF\x50\x08\x85\xC0',
+                                             "x????x????xxxxx")
         self.dwGlobalVars = mem.read_i32(self.dwGlobalVars + 1)
 
         self.dwState = mem.read_i32(vt.engine.function(26) + 0x07)
@@ -338,6 +349,7 @@ class NetVarList:
             self.dwGlowObjectManager = mem.find_pattern("client.dll",
                                                         b'\xA1\x00\x00\x00\x00\xA8\x01\x75\x4B', "x????xxxx")
             self.dwGlowObjectManager = mem.read_i32(self.dwGlowObjectManager + 1) + 4
+
 
 class Player:
     def __init__(self, address, index):
@@ -363,7 +375,7 @@ class Player:
         for i in range(0, Engine.get_max_clients()):
             entity = Entity.get_client_entity(i)
 
-            if our_team_num != entity.get_team_num() and self.is_visible_by(entity):
+            if (g_dangerzone or our_team_num != entity.get_team_num()) and self.is_visible_by(entity):
                 return True
 
         return False
@@ -466,6 +478,7 @@ class Engine:
     @staticmethod
     def get_cur_time():
         return mem.read_float(nv.dwGlobalVars + (4 * 0x04))
+
 
 class Entity:
     @staticmethod
@@ -582,7 +595,8 @@ def get_best_target(va, local_p):
         if not entity.is_valid() or not entity.is_visible():
             continue
 
-        if not mp_teammates_are_enemies.get_int() and local_p.get_team_num() == entity.get_team_num():
+        if (
+                not mp_teammates_are_enemies.get_int() or not g_dangerzone) and local_p.get_team_num() == entity.get_team_num():
             continue
         if g_aimbot_head:
             fov = Math.get_fov(va, get_target_angle(local_p, entity, 8))
@@ -638,6 +652,7 @@ def aim_at_target(sensitivity, va, angle):
     if g_current_tick - g_previous_tick > 0:
         g_previous_tick = g_current_tick
         u32.mouse_event(0x0001, int(sx), int(sy), 0, 0)
+
 
 if __name__ == "__main__":
     if platform.architecture()[0] != '64bit':
@@ -702,20 +717,19 @@ if __name__ == "__main__":
                         entity = Entity.get_client_entity(i)
 
                         should_display = entity.is_visible_by_enemies() or not self.is_alive()
-                        if InputSystem.is_button_down(g_glow_key):
+                        if InputSystem.is_button_down(g_glow_key) or g_dangerzone:
                             should_display = True
 
                         if not entity.is_valid() or not should_display or \
-                                (not mp_teammates_are_enemies.get_int() and self.get_team_num() == entity.get_team_num()):
+                                (not g_dangerzone and not mp_teammates_are_enemies.get_int()
+                                 and self.get_team_num() == entity.get_team_num()):
                             if g_fastglow:
                                 entity.set_detected_by_sensor_enemy_time(0)
                             continue
 
-                        # 2 is minimum, 15 is maximum
-
                         entity_health = entity.get_health()
 
-                        if g_fastglow:
+                        if g_fastglow and not g_dangerzone:
                             value = 15.0
                             if entity_health < 30:
                                 value = 1
@@ -733,17 +747,31 @@ if __name__ == "__main__":
                             mem.write_i8(glow_pointer + index + 0x24, 1)
                             mem.write_i8(glow_pointer + index + 0x25, 0)
 
-                if InputSystem.is_button_down(g_triggerbot_key):
+                current_punch = self.get_vec_punch()
+
+                if g_rcs:
+                    if self.get_shots_fired() > 1:
+                        new_punch = Vector3(current_punch.x - g_old_punch.x,
+                                            current_punch.y - g_old_punch.y, 0)
+                        new_angle = Vector3(view_angle.x - new_punch.x * 2.0, view_angle.y - new_punch.y * 2.0, 0)
+
+                        u32.mouse_event(0x0001,
+                                        int(((new_angle.y - view_angle.y) / fl_sensitivity) / -0.022),
+                                        int(((new_angle.x - view_angle.x) / fl_sensitivity) / 0.022),
+                                        0, 0)
+                    g_old_punch = current_punch
+
+                if InputSystem.is_button_down(g_triggerbot_key) and current_punch.deviation() < 0.2:
                     cross_id = self.get_cross_index()
+
                     if cross_id == 0:
                         continue
                     cross_target = Entity.get_client_entity(cross_id - 1)
-                    if self.get_team_num() != cross_target.get_team_num() and cross_target.get_health() > 0:
-                        u32.mouse_event(0x0002, 0, 0, 0, 0)
-                        k32.Sleep(50)
-                        u32.mouse_event(0x0004, 0, 0, 0, 0)
 
-                # print("" + str(self.get_weapon_id()))
+                    if (g_dangerzone or self.get_team_num() != cross_target.get_team_num()) and cross_target.get_health() > 0:
+                        u32.mouse_event(0x0002, 0, 0, 0, 0)
+                        k32.Sleep(25)
+                        u32.mouse_event(0x0004, 0, 0, 0, 0)
 
                 if g_autopistol \
                         and current_time > g_next_shoot_time \
@@ -764,19 +792,6 @@ if __name__ == "__main__":
                     aim_at_target(fl_sensitivity, view_angle, get_target_angle(self, _target, _target_bone))
                 else:
                     target_set(Player(0, 0))
-
-                if g_rcs:
-                    current_punch = self.get_vec_punch()
-                    if self.get_shots_fired() > 1:
-                        new_punch = Vector3(current_punch.x - g_old_punch.x,
-                                            current_punch.y - g_old_punch.y, 0)
-                        new_angle = Vector3(view_angle.x - new_punch.x * 2.0, view_angle.y - new_punch.y * 2.0, 0)
-
-                        u32.mouse_event(0x0001,
-                                        int(((new_angle.y - view_angle.y) / fl_sensitivity) / -0.022),
-                                        int(((new_angle.x - view_angle.x) / fl_sensitivity) / 0.022),
-                                        0, 0)
-                    g_old_punch = current_punch
             except ValueError:
                 continue
         else:
